@@ -20,6 +20,7 @@ export type DashboardStats = {
 export type StorageSettings = {
   database_path: string;
   image_save_path: string;
+  settings_json_path: string;
 };
 
 export type PageType = "home" | "settings";
@@ -28,4 +29,10 @@ export type RecordFilterType = "all" | "image" | "file" | "text";
 
 export type AutoStartSettings = {
   auto_start_enabled: boolean;
+};
+
+
+export type RecordExpirationSettings = {
+  expiration_enabled: boolean;
+  expiration_days: number;
 };
