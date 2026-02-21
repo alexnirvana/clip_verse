@@ -1,7 +1,12 @@
 mod db;
+mod monitor;
 mod utils;
 
-use db::{delete_record, init_db, insert_text_record, list_text_records, stats, ClipboardRecord, DashboardStats};
+use db::{
+    delete_record, init_db, insert_text_record, list_text_records, stats, ClipboardRecord,
+    DashboardStats,
+};
+use monitor::start_clipboard_monitor;
 
 #[tauri::command]
 fn init_app() -> Result<String, String> {
@@ -18,7 +23,10 @@ fn add_text_record(content: String) -> Result<i64, String> {
 }
 
 #[tauri::command]
-fn get_text_records(limit: Option<i64>, keyword: Option<String>) -> Result<Vec<ClipboardRecord>, String> {
+fn get_text_records(
+    limit: Option<i64>,
+    keyword: Option<String>,
+) -> Result<Vec<ClipboardRecord>, String> {
     let safe_limit = limit.unwrap_or(100).clamp(1, 500);
     list_text_records(safe_limit, keyword.as_deref()).map_err(|e| e.to_string())
 }
@@ -38,6 +46,8 @@ pub fn run() {
     if let Err(err) = init_db() {
         eprintln!("数据库初始化失败: {err}");
     }
+
+    start_clipboard_monitor();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
