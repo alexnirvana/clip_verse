@@ -6,6 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { HomePage } from "@/pages/HomePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import type {
+  AutoStartSettings,
   ClipboardRecord,
   DashboardStats,
   PageType,
@@ -22,6 +23,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [storageSettings, setStorageSettings] = useState<StorageSettings | null>(null);
+  const [autoStartSettings, setAutoStartSettings] = useState<AutoStartSettings | null>(null);
+  const [savingAutoStart, setSavingAutoStart] = useState(false);
 
   const filteredRecords = useMemo(() => {
     const sorted = [...records].sort((a, b) => b.timestamp - a.timestamp);
@@ -34,7 +37,7 @@ function App() {
   async function init() {
     try {
       await invoke("init_app");
-      await Promise.all([loadRecords(), loadStats(), loadStorageSettings()]);
+      await Promise.all([loadRecords(), loadStats(), loadStorageSettings(), loadAutoStartSettings()]);
     } catch (e) {
       setError(String(e));
     }
@@ -77,6 +80,37 @@ function App() {
       setStorageSettings(result);
     } catch (e) {
       setError(`加载设置失败：${String(e)}`);
+    }
+  }
+
+  async function loadAutoStartSettings() {
+    try {
+      const result = await invoke<AutoStartSettings>("get_auto_start_settings");
+      setAutoStartSettings(result);
+    } catch (e) {
+      setError(`加载开机启动设置失败：${String(e)}`);
+    }
+  }
+
+  async function handleToggleAutoStart(nextEnabled: boolean) {
+    setSavingAutoStart(true);
+    try {
+      await invoke("set_auto_start_settings", { autoStartEnabled: nextEnabled });
+      setAutoStartSettings({ auto_start_enabled: nextEnabled });
+      toaster.create({
+        title: nextEnabled ? "已开启系统启动时运行" : "已关闭系统启动时运行",
+        type: "success",
+        duration: 2000,
+      });
+    } catch (e) {
+      toaster.create({
+        title: "更新系统启动时运行失败",
+        description: String(e),
+        type: "error",
+        duration: 3000,
+      });
+    } finally {
+      setSavingAutoStart(false);
     }
   }
 
@@ -154,6 +188,7 @@ function App() {
           setPage(nextPage);
           if (nextPage === "settings") {
             void loadStorageSettings();
+            void loadAutoStartSettings();
           }
         }}
       >
@@ -178,7 +213,12 @@ function App() {
             onToggleFavorite={(id, isFavorite) => void handleToggleFavorite(id, isFavorite)}
           />
         ) : (
-          <SettingsPage settings={storageSettings} />
+          <SettingsPage
+            settings={storageSettings}
+            autoStartSettings={autoStartSettings}
+            savingAutoStart={savingAutoStart}
+            onToggleAutoStart={(nextEnabled) => void handleToggleAutoStart(nextEnabled)}
+          />
         )}
       </AppShell>
     </>

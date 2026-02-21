@@ -25,3 +25,7 @@ export type StorageSettings = {
 export type PageType = "home" | "settings";
 
 export type RecordFilterType = "all" | "image" | "file" | "text";
+
+export type AutoStartSettings = {
+  auto_start_enabled: boolean;
+};
