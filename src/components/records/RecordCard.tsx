@@ -1,12 +1,15 @@
 import { Box, Button, Flex, HStack, IconButton, Image, Text, VStack } from "@chakra-ui/react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { formatTime } from "@/lib/time";
-import type { ClipboardRecord } from "@/types/clipboard";
+import type { ClipboardRecord, CustomGroup } from "@/types/clipboard";
 
 type Props = {
   record: ClipboardRecord;
   onDelete: (id: number) => void;
   onToggleFavorite: (id: number, isFavorite: boolean) => void;
+  customGroups: CustomGroup[];
+  onAddRecordGroup: (recordId: number, groupId: number) => void;
+  onRemoveRecordGroup: (recordId: number, groupId: number) => void;
 };
 
 const typeLabelMap: Record<string, string> = {
@@ -15,7 +18,14 @@ const typeLabelMap: Record<string, string> = {
   file: "文件",
 };
 
-export const RecordCard = ({ record, onDelete, onToggleFavorite }: Props) => {
+export const RecordCard = ({
+  record,
+  onDelete,
+  onToggleFavorite,
+  customGroups,
+  onAddRecordGroup,
+  onRemoveRecordGroup,
+}: Props) => {
   const isText = record.content_type === "text";
   const isImage = record.content_type === "image";
 
@@ -86,6 +96,29 @@ export const RecordCard = ({ record, onDelete, onToggleFavorite }: Props) => {
           删除
         </Button>
       </Flex>
+
+      <VStack align="start" mt={3} gap={2}>
+        <Text fontSize="xs" color="gray.600">
+          分组管理
+        </Text>
+        <Flex gap={2} wrap="wrap">
+          {customGroups.map((group) => {
+            const joined = record.group_ids.includes(group.id);
+            return (
+              <Button
+                key={group.id}
+                size="xs"
+                variant="outline"
+                onClick={() =>
+                  joined ? onRemoveRecordGroup(record.id, group.id) : onAddRecordGroup(record.id, group.id)
+                }
+              >
+                {joined ? `移除 ${group.name}` : `加入 ${group.name}`}
+              </Button>
+            );
+          })}
+        </Flex>
+      </VStack>
     </Box>
   );
 };

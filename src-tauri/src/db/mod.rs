@@ -47,6 +47,13 @@ pub struct ClipboardRecord {
     pub file_path: Option<String>,
     pub icon_path: Option<String>,
     pub is_favorite: bool,
+    pub group_ids: Vec<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CustomGroup {
+    pub id: i64,
+    pub name: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -253,6 +260,28 @@ pub fn init_db() -> Result<(), DbError> {
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS custom_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS record_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id INTEGER NOT NULL,
+            group_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(record_id, group_id),
+            FOREIGN KEY (record_id) REFERENCES clipboard_records(id) ON DELETE CASCADE,
+            FOREIGN KEY (group_id) REFERENCES custom_groups(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_record_groups_record_id
+            ON record_groups(record_id);
+        CREATE INDEX IF NOT EXISTS idx_record_groups_group_id
+            ON record_groups(group_id);
         ",
     )?;
 
@@ -416,6 +445,7 @@ pub fn list_text_records(
                 file_path: None,
                 icon_path: None,
                 is_favorite: row.get::<_, i64>(7)? != 0,
+                group_ids: Vec::new(),
             })
         })?;
 
@@ -447,6 +477,7 @@ pub fn list_text_records(
                 file_path: None,
                 icon_path: None,
                 is_favorite: row.get::<_, i64>(7)? != 0,
+                group_ids: Vec::new(),
             })
         })?;
 
@@ -543,6 +574,59 @@ pub fn set_favorite(record_id: i64, is_favorite: bool) -> Result<(), DbError> {
     Ok(())
 }
 
+pub fn list_custom_groups() -> Result<Vec<CustomGroup>, DbError> {
+    let conn = connection()?;
+    let mut stmt = conn.prepare("SELECT id, name FROM custom_groups ORDER BY id ASC")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(CustomGroup {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    })?;
+
+    let mut groups = Vec::new();
+    for row in rows {
+        groups.push(row?);
+    }
+    Ok(groups)
+}
+
+pub fn create_custom_group(name: &str) -> Result<i64, DbError> {
+    let conn = connection()?;
+    let trimmed_name = name.trim();
+    let now_iso = time::now_iso8601();
+
+    conn.execute(
+        "INSERT INTO custom_groups (name, created_at, updated_at) VALUES (?1, ?2, ?3)",
+        params![trimmed_name, now_iso, now_iso],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn delete_custom_group(group_id: i64) -> Result<(), DbError> {
+    let conn = connection()?;
+    conn.execute("DELETE FROM custom_groups WHERE id = ?1", params![group_id])?;
+    Ok(())
+}
+
+pub fn add_record_to_group(record_id: i64, group_id: i64) -> Result<(), DbError> {
+    let conn = connection()?;
+    conn.execute(
+        "INSERT OR IGNORE INTO record_groups (record_id, group_id, created_at) VALUES (?1, ?2, ?3)",
+        params![record_id, group_id, time::now_iso8601()],
+    )?;
+    Ok(())
+}
+
+pub fn remove_record_from_group(record_id: i64, group_id: i64) -> Result<(), DbError> {
+    let conn = connection()?;
+    conn.execute(
+        "DELETE FROM record_groups WHERE record_id = ?1 AND group_id = ?2",
+        params![record_id, group_id],
+    )?;
+    Ok(())
+}
+
 pub fn get_auto_start_enabled() -> Result<bool, DbError> {
     let config = read_local_settings_config()?;
     Ok(config.auto_start_enabled)
@@ -628,12 +712,15 @@ pub fn list_all_records(
                     i.thumbnail_path,
                     f.file_path as file_path,
                     f.icon_path,
-                    COALESCE(r.is_favorite, 0)
+                    COALESCE(r.is_favorite, 0),
+                    COALESCE(GROUP_CONCAT(DISTINCT rg.group_id), '')
              FROM clipboard_records r
              LEFT JOIN text_contents t ON t.record_id = r.id
              LEFT JOIN image_contents i ON i.record_id = r.id
              LEFT JOIN file_contents f ON f.record_id = r.id
+             LEFT JOIN record_groups rg ON rg.record_id = r.id
              WHERE COALESCE(t.content, r.preview, f.file_name) LIKE ?1
+             GROUP BY r.id
              ORDER BY r.timestamp DESC
              LIMIT ?2",
         )?;
@@ -652,6 +739,11 @@ pub fn list_all_records(
                 file_path: row.get(9)?,
                 icon_path: row.get(10)?,
                 is_favorite: row.get::<_, i64>(11)? != 0,
+                group_ids: row
+                    .get::<_, String>(12)?
+                    .split(',')
+                    .filter_map(|value| value.parse::<i64>().ok())
+                    .collect(),
             })
         })?;
 
@@ -667,11 +759,14 @@ pub fn list_all_records(
                     i.thumbnail_path,
                     f.file_path as file_path,
                     f.icon_path,
-                    COALESCE(r.is_favorite, 0)
+                    COALESCE(r.is_favorite, 0),
+                    COALESCE(GROUP_CONCAT(DISTINCT rg.group_id), '')
              FROM clipboard_records r
              LEFT JOIN text_contents t ON t.record_id = r.id
              LEFT JOIN image_contents i ON i.record_id = r.id
              LEFT JOIN file_contents f ON f.record_id = r.id
+             LEFT JOIN record_groups rg ON rg.record_id = r.id
+             GROUP BY r.id
              ORDER BY r.timestamp DESC
              LIMIT ?1",
         )?;
@@ -690,6 +785,11 @@ pub fn list_all_records(
                 file_path: row.get(9)?,
                 icon_path: row.get(10)?,
                 is_favorite: row.get::<_, i64>(11)? != 0,
+                group_ids: row
+                    .get::<_, String>(12)?
+                    .split(',')
+                    .filter_map(|value| value.parse::<i64>().ok())
+                    .collect(),
             })
         })?;
 

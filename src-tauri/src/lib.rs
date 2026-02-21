@@ -3,11 +3,13 @@ mod monitor;
 mod utils;
 
 use db::{
-    cleanup_expired_records_on_startup, db_path, delete_record, ensure_settings_config,
+    add_record_to_group, cleanup_expired_records_on_startup, create_custom_group, db_path, delete_custom_group,
+    delete_record, ensure_settings_config,
     get_auto_start_enabled, get_expiration_days, get_file_metadata, get_record_expiration_enabled, images_raw_dir,
-    init_db, insert_text_record, list_all_records, list_text_records, set_auto_start_enabled,
+    init_db, insert_text_record, list_all_records, list_custom_groups, list_text_records, remove_record_from_group,
+    set_auto_start_enabled,
     set_expiration_days, set_favorite, set_record_expiration_enabled, settings_config_path, stats, ClipboardRecord,
-    DashboardStats,
+    CustomGroup, DashboardStats,
 };
 use monitor::{set_event_emitter, start_clipboard_monitor};
 use tauri_plugin_autostart::ManagerExt;
@@ -63,6 +65,35 @@ fn get_file_info(record_id: i64) -> Result<(String, i64, Option<String>), String
 #[tauri::command]
 fn toggle_favorite(record_id: i64, is_favorite: bool) -> Result<(), String> {
     set_favorite(record_id, is_favorite).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_custom_groups() -> Result<Vec<CustomGroup>, String> {
+    list_custom_groups().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_group(name: String) -> Result<i64, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("分组名称不能为空".to_string());
+    }
+    create_custom_group(trimmed).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_group(group_id: i64) -> Result<(), String> {
+    delete_custom_group(group_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn add_record_group(record_id: i64, group_id: i64) -> Result<(), String> {
+    add_record_to_group(record_id, group_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_record_group(record_id: i64, group_id: i64) -> Result<(), String> {
+    remove_record_from_group(record_id, group_id).map_err(|e| e.to_string())
 }
 
 #[derive(serde::Serialize)]
@@ -166,7 +197,12 @@ pub fn run() {
             set_auto_start_settings,
             get_record_expiration_settings,
             set_record_expiration_settings,
-            toggle_favorite
+            toggle_favorite,
+            get_custom_groups,
+            create_group,
+            remove_group,
+            add_record_group,
+            remove_record_group
         ])
         .run(tauri::generate_context!())
         .expect("运行应用时发生错误");

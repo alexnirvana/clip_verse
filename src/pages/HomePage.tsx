@@ -1,6 +1,6 @@
 import { Box, Button, Flex, Heading, Input, SegmentGroup, Spinner, Text } from "@chakra-ui/react";
 import { RecordMasonry } from "@/components/records/RecordMasonry";
-import type { ClipboardRecord, RecordFilterType } from "@/types/clipboard";
+import type { ClipboardRecord, CustomGroup, RecordFilterType } from "@/types/clipboard";
 
 type Props = {
   statsTotal: number;
@@ -16,6 +16,15 @@ type Props = {
   emptyStateText: string;
   onDelete: (id: number) => void;
   onToggleFavorite: (id: number, isFavorite: boolean) => void;
+  customGroups: CustomGroup[];
+  activeGroupId: number | null;
+  onGroupFilterChange: (groupId: number | null) => void;
+  newGroupName: string;
+  onNewGroupNameChange: (value: string) => void;
+  onCreateGroup: () => void;
+  onDeleteGroup: (groupId: number) => void;
+  onAddRecordGroup: (recordId: number, groupId: number) => void;
+  onRemoveRecordGroup: (recordId: number, groupId: number) => void;
 };
 
 const filterOptions: Array<{ label: string; value: RecordFilterType }> = [
@@ -23,6 +32,7 @@ const filterOptions: Array<{ label: string; value: RecordFilterType }> = [
   { label: "图片", value: "image" },
   { label: "文件", value: "file" },
   { label: "文本", value: "text" },
+  { label: "收藏", value: "favorite" },
 ];
 
 export const HomePage = ({
@@ -39,6 +49,15 @@ export const HomePage = ({
   emptyStateText,
   onDelete,
   onToggleFavorite,
+  customGroups,
+  activeGroupId,
+  onGroupFilterChange,
+  newGroupName,
+  onNewGroupNameChange,
+  onCreateGroup,
+  onDeleteGroup,
+  onAddRecordGroup,
+  onRemoveRecordGroup,
 }: Props) => {
   return (
     <>
@@ -76,6 +95,45 @@ export const HomePage = ({
         </Flex>
       </Flex>
 
+      <Flex className="panel-flat" p={5} justify="space-between" align="center" gap={4} wrap="wrap" mt={4}>
+        <Flex gap={2} wrap="wrap" align="center">
+          <Button
+            size="sm"
+            className={`next-btn ${activeGroupId === null ? "next-btn-primary" : "next-btn-ghost"}`}
+            onClick={() => onGroupFilterChange(null)}
+          >
+            全部分组
+          </Button>
+          {customGroups.map((group) => (
+            <Flex key={group.id} align="center" gap={1}>
+              <Button
+                size="sm"
+                className={`next-btn ${activeGroupId === group.id ? "next-btn-primary" : "next-btn-ghost"}`}
+                onClick={() => onGroupFilterChange(group.id)}
+              >
+                {group.name}
+              </Button>
+              <Button size="xs" variant="ghost" onClick={() => onDeleteGroup(group.id)}>
+                ×
+              </Button>
+            </Flex>
+          ))}
+        </Flex>
+
+        <Flex gap={2} wrap="wrap" align="center">
+          <Input
+            value={newGroupName}
+            onChange={(e) => onNewGroupNameChange(e.target.value)}
+            placeholder="输入新分组名称"
+            width="220px"
+            className="flat-input"
+          />
+          <Button className="next-btn next-btn-primary" onClick={onCreateGroup}>
+            新建分组
+          </Button>
+        </Flex>
+      </Flex>
+
       <Box className="panel-flat" p={6}>
         <Heading size="md" mb={4}>
           时间序 · 记录瀑布流
@@ -97,6 +155,9 @@ export const HomePage = ({
             emptyStateText={emptyStateText}
             onDelete={onDelete}
             onToggleFavorite={onToggleFavorite}
+            customGroups={customGroups}
+            onAddRecordGroup={onAddRecordGroup}
+            onRemoveRecordGroup={onRemoveRecordGroup}
           />
         )}
       </Box>
