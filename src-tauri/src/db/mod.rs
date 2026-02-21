@@ -84,7 +84,7 @@ pub fn encrypted_images_dir() -> PathBuf {
     data_root().join("encrypted").join("images")
 }
 
-fn db_path() -> PathBuf {
+pub fn db_path() -> PathBuf {
     data_root().join("database").join("clipboard.db")
 }
 
