@@ -7,6 +7,11 @@ import { HomePage } from "@/pages/HomePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import type { ClipboardRecord, DashboardStats, PageType, StorageSettings } from "@/types/clipboard";
 
+type StorageSettings = {
+  database_path: string;
+  image_save_path: string;
+};
+
 function App() {
   const [page, setPage] = useState<PageType>("home");
   const [keyword, setKeyword] = useState("");
