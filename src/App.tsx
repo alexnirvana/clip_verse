@@ -8,6 +8,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import type {
   AutoStartSettings,
   ClipboardRecord,
+  CustomGroup,
   DashboardStats,
   PageType,
   RecordExpirationSettings,
@@ -20,6 +21,9 @@ function App() {
   const [keyword, setKeyword] = useState("");
   const [filterType, setFilterType] = useState<RecordFilterType>("all");
   const [records, setRecords] = useState<ClipboardRecord[]>([]);
+  const [customGroups, setCustomGroups] = useState<CustomGroup[]>([]);
+  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
+  const [newGroupName, setNewGroupName] = useState("");
   const [stats, setStats] = useState<DashboardStats>({ total_records: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -31,11 +35,18 @@ function App() {
 
   const filteredRecords = useMemo(() => {
     const sorted = [...records].sort((a, b) => b.timestamp - a.timestamp);
-    if (filterType === "all") {
-      return sorted;
+    const typeFiltered =
+      filterType === "all"
+        ? sorted
+        : filterType === "favorite"
+          ? sorted.filter((record) => record.is_favorite)
+          : sorted.filter((record) => record.content_type === filterType);
+
+    if (activeGroupId === null) {
+      return typeFiltered;
     }
-    return sorted.filter((record) => record.content_type === filterType);
-  }, [records, filterType]);
+    return typeFiltered.filter((record) => record.group_ids.includes(activeGroupId));
+  }, [records, filterType, activeGroupId]);
 
   async function init() {
     try {
@@ -46,6 +57,7 @@ function App() {
         loadStorageSettings(),
         loadAutoStartSettings(),
         loadRecordExpirationSettings(),
+        loadCustomGroups(),
       ]);
     } catch (e) {
       setError(String(e));
@@ -107,6 +119,20 @@ function App() {
       setRecordExpirationSettings(result);
     } catch (e) {
       setError(`加载记录过期设置失败：${String(e)}`);
+    }
+  }
+
+  async function loadCustomGroups() {
+    try {
+      const result = await invoke<CustomGroup[]>("get_custom_groups");
+      setCustomGroups(result);
+    } catch (e) {
+      toaster.create({
+        title: "加载自定义分组失败",
+        description: String(e),
+        type: "error",
+        duration: 3000,
+      });
     }
   }
 
@@ -224,6 +250,76 @@ function App() {
     }
   }
 
+  async function handleCreateGroup() {
+    const trimmed = newGroupName.trim();
+    if (!trimmed) {
+      toaster.create({
+        title: "分组名称不能为空",
+        type: "warning",
+        duration: 2000,
+      });
+      return;
+    }
+
+    try {
+      await invoke("create_group", { name: trimmed });
+      setNewGroupName("");
+      await loadCustomGroups();
+      toaster.create({ title: "分组创建成功", type: "success", duration: 2000 });
+    } catch (e) {
+      toaster.create({
+        title: "创建分组失败",
+        description: String(e),
+        type: "error",
+        duration: 2600,
+      });
+    }
+  }
+
+  async function handleDeleteGroup(groupId: number) {
+    try {
+      await invoke("remove_group", { groupId });
+      setActiveGroupId((prev) => (prev === groupId ? null : prev));
+      await Promise.all([loadCustomGroups(), loadRecords()]);
+      toaster.create({ title: "分组已移除", type: "success", duration: 2000 });
+    } catch (e) {
+      toaster.create({
+        title: "移除分组失败",
+        description: String(e),
+        type: "error",
+        duration: 2600,
+      });
+    }
+  }
+
+  async function handleAddRecordGroup(recordId: number, groupId: number) {
+    try {
+      await invoke("add_record_group", { recordId, groupId });
+      await loadRecords();
+    } catch (e) {
+      toaster.create({
+        title: "加入分组失败",
+        description: String(e),
+        type: "error",
+        duration: 2600,
+      });
+    }
+  }
+
+  async function handleRemoveRecordGroup(recordId: number, groupId: number) {
+    try {
+      await invoke("remove_record_group", { recordId, groupId });
+      await loadRecords();
+    } catch (e) {
+      toaster.create({
+        title: "移除分组失败",
+        description: String(e),
+        type: "error",
+        duration: 2600,
+      });
+    }
+  }
+
   useEffect(() => {
     void init();
 
@@ -257,6 +353,7 @@ function App() {
             void loadStorageSettings();
             void loadAutoStartSettings();
             void loadRecordExpirationSettings();
+            void loadCustomGroups();
           }
         }}
       >
@@ -271,6 +368,7 @@ function App() {
             onReset={() => {
               setKeyword("");
               setFilterType("all");
+              setActiveGroupId(null);
               void loadRecords();
             }}
             loading={loading}
@@ -279,6 +377,15 @@ function App() {
             emptyStateText={emptyStateText}
             onDelete={(id) => void handleDelete(id)}
             onToggleFavorite={(id, isFavorite) => void handleToggleFavorite(id, isFavorite)}
+            customGroups={customGroups}
+            activeGroupId={activeGroupId}
+            onGroupFilterChange={setActiveGroupId}
+            newGroupName={newGroupName}
+            onNewGroupNameChange={setNewGroupName}
+            onCreateGroup={() => void handleCreateGroup()}
+            onDeleteGroup={(groupId) => void handleDeleteGroup(groupId)}
+            onAddRecordGroup={(recordId, groupId) => void handleAddRecordGroup(recordId, groupId)}
+            onRemoveRecordGroup={(recordId, groupId) => void handleRemoveRecordGroup(recordId, groupId)}
           />
         ) : (
           <SettingsPage
