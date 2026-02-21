@@ -4,7 +4,7 @@ mod utils;
 
 use db::{
     delete_record, get_file_metadata, init_db, insert_text_record, list_text_records,
-    list_all_records, stats, ClipboardRecord, DashboardStats, db_path, images_raw_dir,
+    list_all_records, set_favorite, stats, ClipboardRecord, DashboardStats, db_path, images_raw_dir,
 };
 use monitor::{start_clipboard_monitor, set_event_emitter};
 
@@ -56,6 +56,11 @@ fn get_file_info(record_id: i64) -> Result<(String, i64, Option<String>), String
 }
 
 
+#[tauri::command]
+fn toggle_favorite(record_id: i64, is_favorite: bool) -> Result<(), String> {
+    set_favorite(record_id, is_favorite).map_err(|e| e.to_string())
+}
+
 #[derive(serde::Serialize)]
 struct StorageSettings {
     database_path: String,
@@ -93,7 +98,8 @@ pub fn run() {
             remove_record,
             get_dashboard_stats,
             get_file_info,
-            get_storage_settings
+            get_storage_settings,
+            toggle_favorite
         ])
         .run(tauri::generate_context!())
         .expect("运行应用时发生错误");

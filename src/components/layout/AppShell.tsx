@@ -18,7 +18,7 @@ export const AppShell = ({ page, onSwitch, children }: Props) => {
             <Heading size="lg" className="app-title">
               Clip Verse
             </Heading>
-            <Text className="app-subtitle">剪贴板历史管理 · 赛博暗黑主题</Text>
+            <Text className="app-subtitle">暗黑彩色扁平工作台</Text>
           </Box>
           <AppMenu page={page} onSwitch={onSwitch} />
         </Flex>

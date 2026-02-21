@@ -9,16 +9,12 @@ type Props = {
 export const AppMenu = ({ page, onSwitch }: Props) => {
   return (
     <HStack gap={2}>
-      <Button
-        className="neon-btn"
-        variant={page === "home" ? "solid" : "outline"}
-        onClick={() => onSwitch("home")}
-      >
+      <Button className={`next-btn ${page === "home" ? "next-btn-primary" : "next-btn-ghost"}`} variant="solid" onClick={() => onSwitch("home")}>
         首页
       </Button>
       <Button
-        className="neon-btn"
-        variant={page === "settings" ? "solid" : "outline"}
+        className={`next-btn ${page === "settings" ? "next-btn-secondary" : "next-btn-ghost"}`}
+        variant="solid"
         onClick={() => onSwitch("settings")}
       >
         设置

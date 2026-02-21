@@ -5,26 +5,31 @@ import { AppToaster, toaster } from "@/components/common/AppToaster";
 import { AppShell } from "@/components/layout/AppShell";
 import { HomePage } from "@/pages/HomePage";
 import { SettingsPage } from "@/pages/SettingsPage";
-import type { ClipboardRecord, DashboardStats, PageType, StorageSettings } from "@/types/clipboard";
-
-type StorageSettings = {
-  database_path: string;
-  image_save_path: string;
-};
+import type {
+  ClipboardRecord,
+  DashboardStats,
+  PageType,
+  RecordFilterType,
+  StorageSettings,
+} from "@/types/clipboard";
 
 function App() {
   const [page, setPage] = useState<PageType>("home");
   const [keyword, setKeyword] = useState("");
+  const [filterType, setFilterType] = useState<RecordFilterType>("all");
   const [records, setRecords] = useState<ClipboardRecord[]>([]);
   const [stats, setStats] = useState<DashboardStats>({ total_records: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [storageSettings, setStorageSettings] = useState<StorageSettings | null>(null);
 
-  const sortedRecords = useMemo(
-    () => [...records].sort((a, b) => b.timestamp - a.timestamp),
-    [records],
-  );
+  const filteredRecords = useMemo(() => {
+    const sorted = [...records].sort((a, b) => b.timestamp - a.timestamp);
+    if (filterType === "all") {
+      return sorted;
+    }
+    return sorted.filter((record) => record.content_type === filterType);
+  }, [records, filterType]);
 
   async function init() {
     try {
@@ -95,6 +100,29 @@ function App() {
     }
   }
 
+  async function handleToggleFavorite(id: number, isFavorite: boolean) {
+    try {
+      await invoke("toggle_favorite", { recordId: id, isFavorite });
+      setRecords((prev) =>
+        prev.map((record) =>
+          record.id === id
+            ? {
+                ...record,
+                is_favorite: isFavorite,
+              }
+            : record,
+        ),
+      );
+    } catch (e) {
+      toaster.create({
+        title: "收藏操作失败",
+        description: String(e),
+        type: "error",
+        duration: 2600,
+      });
+    }
+  }
+
   useEffect(() => {
     void init();
 
@@ -111,8 +139,6 @@ function App() {
     return () => {
       if (unlisten) unlisten();
     };
-    // 仅在首次挂载时初始化与绑定事件
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const emptyStateText = keyword.trim()
@@ -135,17 +161,21 @@ function App() {
           <HomePage
             statsTotal={stats.total_records}
             keyword={keyword}
+            filterType={filterType}
+            onFilterChange={setFilterType}
             onKeywordChange={setKeyword}
             onSearch={() => void loadRecords()}
             onReset={() => {
               setKeyword("");
+              setFilterType("all");
               void loadRecords();
             }}
             loading={loading}
             error={error}
-            records={sortedRecords}
+            records={filteredRecords}
             emptyStateText={emptyStateText}
             onDelete={(id) => void handleDelete(id)}
+            onToggleFavorite={(id, isFavorite) => void handleToggleFavorite(id, isFavorite)}
           />
         ) : (
           <SettingsPage settings={storageSettings} />

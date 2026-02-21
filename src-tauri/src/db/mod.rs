@@ -46,6 +46,7 @@ pub struct ClipboardRecord {
     pub thumbnail_path: Option<String>,
     pub file_path: Option<String>,
     pub icon_path: Option<String>,
+    pub is_favorite: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -325,7 +326,7 @@ pub fn list_text_records(
         let like = format!("%{}%", search);
         let mut stmt = conn.prepare(
             "SELECT r.id, r.content_type, r.timestamp, r.created_at, COALESCE(r.preview, ''),
-                    COALESCE(r.content_size, 0), t.content
+                    COALESCE(r.content_size, 0), t.content, COALESCE(r.is_favorite, 0)
              FROM clipboard_records r
              INNER JOIN text_contents t ON t.record_id = r.id
              WHERE r.content_type = 'text' AND t.content LIKE ?1
@@ -346,6 +347,7 @@ pub fn list_text_records(
                 thumbnail_path: None,
                 file_path: None,
                 icon_path: None,
+                is_favorite: row.get::<_, i64>(7)? != 0,
             })
         })?;
 
@@ -355,7 +357,7 @@ pub fn list_text_records(
     } else {
         let mut stmt = conn.prepare(
             "SELECT r.id, r.content_type, r.timestamp, r.created_at, COALESCE(r.preview, ''),
-                    COALESCE(r.content_size, 0), t.content
+                    COALESCE(r.content_size, 0), t.content, COALESCE(r.is_favorite, 0)
              FROM clipboard_records r
              INNER JOIN text_contents t ON t.record_id = r.id
              WHERE r.content_type = 'text'
@@ -376,6 +378,7 @@ pub fn list_text_records(
                 thumbnail_path: None,
                 file_path: None,
                 icon_path: None,
+                is_favorite: row.get::<_, i64>(7)? != 0,
             })
         })?;
 
@@ -459,6 +462,16 @@ pub fn delete_record(record_id: i64) -> Result<(), DbError> {
     Ok(())
 }
 
+
+pub fn set_favorite(record_id: i64, is_favorite: bool) -> Result<(), DbError> {
+    let conn = connection()?;
+    conn.execute(
+        "UPDATE clipboard_records SET is_favorite = ?1, updated_at = ?2 WHERE id = ?3",
+        params![if is_favorite { 1 } else { 0 }, time::now_iso8601(), record_id],
+    )?;
+    Ok(())
+}
+
 pub fn stats() -> Result<DashboardStats, DbError> {
     let conn = connection()?;
     let total_records = conn.query_row("SELECT COUNT(*) FROM clipboard_records", [], |row| {
@@ -485,7 +498,8 @@ pub fn list_all_records(
                     i.file_path as image_path,
                     i.thumbnail_path,
                     f.file_path as file_path,
-                    f.icon_path
+                    f.icon_path,
+                    COALESCE(r.is_favorite, 0)
              FROM clipboard_records r
              LEFT JOIN text_contents t ON t.record_id = r.id
              LEFT JOIN image_contents i ON i.record_id = r.id
@@ -508,6 +522,7 @@ pub fn list_all_records(
                 thumbnail_path: row.get(8)?,
                 file_path: row.get(9)?,
                 icon_path: row.get(10)?,
+                is_favorite: row.get::<_, i64>(11)? != 0,
             })
         })?;
 
@@ -522,7 +537,8 @@ pub fn list_all_records(
                     i.file_path as image_path,
                     i.thumbnail_path,
                     f.file_path as file_path,
-                    f.icon_path
+                    f.icon_path,
+                    COALESCE(r.is_favorite, 0)
              FROM clipboard_records r
              LEFT JOIN text_contents t ON t.record_id = r.id
              LEFT JOIN image_contents i ON i.record_id = r.id
@@ -544,6 +560,7 @@ pub fn list_all_records(
                 thumbnail_path: row.get(8)?,
                 file_path: row.get(9)?,
                 icon_path: row.get(10)?,
+                is_favorite: row.get::<_, i64>(11)? != 0,
             })
         })?;
 

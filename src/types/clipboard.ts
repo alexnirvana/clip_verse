@@ -10,6 +10,7 @@ export type ClipboardRecord = {
   thumbnail_path?: string;
   file_path?: string;
   icon_path?: string;
+  is_favorite: boolean;
 };
 
 export type DashboardStats = {
@@ -22,3 +23,5 @@ export type StorageSettings = {
 };
 
 export type PageType = "home" | "settings";
+
+export type RecordFilterType = "all" | "image" | "file" | "text";
