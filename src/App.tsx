@@ -1,96 +1,40 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import {
-  Box,
-  Container,
-  Heading,
-  Text,
-  Input,
-  Button,
-  Flex,
-  VStack,
-  HStack,
-  Image,
-  Spinner,
-  createToaster,
-  Toaster as ChakraToaster,
-  Portal,
-  Toast,
-  Stack,
-} from "@chakra-ui/react";
-
-const toaster = createToaster({
-  placement: "bottom-end",
-  pauseOnPageIdle: true,
-});
-
-const Toaster = () => {
-  return (
-    <Portal>
-      <ChakraToaster toaster={toaster} insetInline={{ mdDown: "4" }}>
-        {(toast) => (
-          <Toast.Root width={{ md: "sm" }}>
-            <Stack gap="1" flex="1" maxWidth="100%">
-              {toast.title && <Toast.Title>{toast.title}</Toast.Title>}
-              {toast.description && (
-                <Toast.Description>{toast.description}</Toast.Description>
-              )}
-            </Stack>
-            {toast.closable && <Toast.CloseTrigger />}
-          </Toast.Root>
-        )}
-      </ChakraToaster>
-    </Portal>
-  );
-};
-
-type ClipboardRecord = {
-  id: number;
-  content_type: string;
-  timestamp: number;
-  created_at: string;
-  preview: string;
-  content_size: number;
-  content: string;
-  image_path?: string;
-  thumbnail_path?: string;
-  file_path?: string;
-  icon_path?: string;
-};
-
-type DashboardStats = {
-  total_records: number;
-};
+import { AppToaster, toaster } from "@/components/common/AppToaster";
+import { AppShell } from "@/components/layout/AppShell";
+import { HomePage } from "@/pages/HomePage";
+import { SettingsPage } from "@/pages/SettingsPage";
+import type {
+  ClipboardRecord,
+  DashboardStats,
+  PageType,
+  RecordFilterType,
+  StorageSettings,
+} from "@/types/clipboard";
 
 function App() {
-  // 格式化时间为易读格式
-  const formatTime = (isoString: string) => {
-    try {
-      const date = new Date(isoString);
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
-      const seconds = String(date.getSeconds()).padStart(2, '0');
-      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-    } catch {
-      return isoString;
-    }
-  };
-
+  const [page, setPage] = useState<PageType>("home");
   const [keyword, setKeyword] = useState("");
+  const [filterType, setFilterType] = useState<RecordFilterType>("all");
   const [records, setRecords] = useState<ClipboardRecord[]>([]);
   const [stats, setStats] = useState<DashboardStats>({ total_records: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [storageSettings, setStorageSettings] = useState<StorageSettings | null>(null);
+
+  const filteredRecords = useMemo(() => {
+    const sorted = [...records].sort((a, b) => b.timestamp - a.timestamp);
+    if (filterType === "all") {
+      return sorted;
+    }
+    return sorted.filter((record) => record.content_type === filterType);
+  }, [records, filterType]);
 
   async function init() {
     try {
       await invoke("init_app");
-      await Promise.all([loadRecords(), loadStats()]);
+      await Promise.all([loadRecords(), loadStats(), loadStorageSettings()]);
     } catch (e) {
       setError(String(e));
     }
@@ -127,7 +71,14 @@ function App() {
     }
   }
 
-
+  async function loadStorageSettings() {
+    try {
+      const result = await invoke<StorageSettings>("get_storage_settings");
+      setStorageSettings(result);
+    } catch (e) {
+      setError(`加载设置失败：${String(e)}`);
+    }
+  }
 
   async function handleDelete(id: number) {
     try {
@@ -149,12 +100,34 @@ function App() {
     }
   }
 
+  async function handleToggleFavorite(id: number, isFavorite: boolean) {
+    try {
+      await invoke("toggle_favorite", { recordId: id, isFavorite });
+      setRecords((prev) =>
+        prev.map((record) =>
+          record.id === id
+            ? {
+                ...record,
+                is_favorite: isFavorite,
+              }
+            : record,
+        ),
+      );
+    } catch (e) {
+      toaster.create({
+        title: "收藏操作失败",
+        description: String(e),
+        type: "error",
+        duration: 2600,
+      });
+    }
+  }
+
   useEffect(() => {
     void init();
 
     let unlisten: (() => void) | undefined;
-    listen("clipboard-new-record", (event) => {
-      console.log("收到新记录事件:", event.payload);
+    listen("clipboard-new-record", () => {
       void loadRecords();
       void loadStats();
     })
@@ -166,7 +139,7 @@ function App() {
     return () => {
       if (unlisten) unlisten();
     };
-  }, [keyword]);
+  }, []);
 
   const emptyStateText = keyword.trim()
     ? "没有匹配的记录，请更换关键词重试。"
@@ -174,198 +147,40 @@ function App() {
 
   return (
     <>
-      <Toaster />
-      <Container maxW="container.xl" py={8}>
-      <VStack gap={6} align="stretch">
-        {/* 标题 */}
-        <Box>
-          <Heading size="lg">Clip Verse</Heading>
-          <Text color="gray.600">剪贴板历史管理</Text>
-        </Box>
-
-        {/* 统计和搜索 */}
-        <Flex
-          p={6}
-          borderWidth="1px"
-          borderRadius="lg"
-          bg="white"
-          shadow="sm"
-          justify="space-between"
-          align="center"
-          gap={4}
-        >
-          <Text>总记录数：{stats.total_records}</Text>
-          <Flex gap={2}>
-            <Input
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="按内容关键词搜索"
-              width="240px"
-            />
-            <Button onClick={() => void loadRecords()} colorScheme="blue">
-              搜索
-            </Button>
-            <Button
-              onClick={() => {
-                setKeyword("");
-                void loadRecords();
-              }}
-            >
-              重置
-            </Button>
-          </Flex>
-        </Flex>
-
-        {/* 记录列表 */}
-        <Box p={6} borderWidth="1px" borderRadius="lg" bg="white" shadow="sm">
-          <Heading size="md" mb={4}>剪贴板记录列表</Heading>
-          {error && (
-            <Box mb={4} p={4} bg="red.50" borderRadius="md" color="red.700">
-              {error}
-            </Box>
-          )}
-          {loading ? (
-            <Flex justify="center" py={8}>
-              <Spinner size="xl" />
-            </Flex>
-          ) : records.length === 0 ? (
-            <Text color="gray.500" py={8} textAlign="center">
-              {emptyStateText}
-            </Text>
-          ) : (
-            <VStack gap={4} align="stretch">
-              {records.map((record) => (
-                <Box
-                  key={record.id}
-                  p={4}
-                  borderWidth="1px"
-                  borderRadius="md"
-                  borderColor="gray.200"
-                >
-                  {/* 记录头部 */}
-                  <Flex justify="space-between" align="center" mb={3}>
-                    <HStack gap={2}>
-                      <Box
-                        px={2}
-                        py={1}
-                        bg="blue.100"
-                        color="blue.700"
-                        borderRadius="md"
-                        fontSize="sm"
-                      >
-                        #{record.id}
-                      </Box>
-                      <Box
-                        px={2}
-                        py={1}
-                        bg={
-                          record.content_type === "text"
-                            ? "green.100"
-                            : record.content_type === "image"
-                            ? "purple.100"
-                            : "orange.100"
-                        }
-                        color={
-                          record.content_type === "text"
-                            ? "green.700"
-                            : record.content_type === "image"
-                            ? "purple.700"
-                            : "orange.700"
-                        }
-                        borderRadius="md"
-                        fontSize="sm"
-                      >
-                        {record.content_type === "text"
-                          ? "文本"
-                          : record.content_type === "image"
-                          ? "图片"
-                          : "文件"}
-                      </Box>
-                    </HStack>
-                    <Text color="gray.500" fontSize="sm">
-                      {formatTime(record.created_at)}
-                    </Text>
-                  </Flex>
-
-                  {/* 内容 */}
-                  {record.content_type === "text" ? (
-                    <Text
-                      mb={3}
-                      whiteSpace="pre-wrap"
-                      wordBreak="break-word"
-                      bg="gray.50"
-                      p={3}
-                      borderRadius="md"
-                    >
-                      {record.content}
-                    </Text>
-                  ) : record.content_type === "file" ? (
-                    <VStack gap={2} mb={3} align="stretch">
-                      <Flex gap={3} align="center" p={3} bg="gray.50" borderRadius="md">
-                        {record.icon_path ? (
-                          <Image
-                            src={convertFileSrc(record.icon_path)}
-                            alt="文件图标"
-                            boxSize="48px"
-                            objectFit="contain"
-                          />
-                        ) : (
-                          <Text fontSize="4xl">📄</Text>
-                        )}
-                        <VStack gap={1} align="start">
-                          <Text fontWeight="bold" fontSize="lg">
-                            {record.preview.replace("文件: ", "")}
-                          </Text>
-                          <Text color="gray.500" fontSize="sm" wordBreak="break-all">
-                            {record.file_path || "未知路径"}
-                          </Text>
-                        </VStack>
-                      </Flex>
-                    </VStack>
-                  ) : (
-                    <VStack gap={2} mb={3} align="stretch">
-                      <Box
-                        maxW="100%"
-                        borderRadius="md"
-                        overflow="hidden"
-                        borderWidth="1px"
-                        borderColor="gray.200"
-                      >
-                        <Image
-                          src={convertFileSrc(record.thumbnail_path || record.image_path || "")}
-                          alt="剪贴板图片"
-                          objectFit="contain"
-                          maxH="400px"
-                          width="auto"
-                          height="auto"
-                        />
-                      </Box>
-                      <Text color="gray.500" fontSize="sm">
-                        {record.preview}
-                      </Text>
-                    </VStack>
-                  )}
-
-                  {/* 元数据和操作 */}
-                  <Flex justify="space-between" align="center">
-                    <Text color="gray.500" fontSize="sm">
-                      大小：{record.content_size} 字节
-                    </Text>
-                    <Button
-                      size="sm"
-                      colorScheme="red"
-                      onClick={() => void handleDelete(record.id)}
-                    >
-                      删除
-                    </Button>
-                  </Flex>
-                </Box>
-              ))}
-            </VStack>
-          )}
-        </Box>
-      </VStack>
-    </Container>
+      <AppToaster />
+      <AppShell
+        page={page}
+        onSwitch={(nextPage) => {
+          setPage(nextPage);
+          if (nextPage === "settings") {
+            void loadStorageSettings();
+          }
+        }}
+      >
+        {page === "home" ? (
+          <HomePage
+            statsTotal={stats.total_records}
+            keyword={keyword}
+            filterType={filterType}
+            onFilterChange={setFilterType}
+            onKeywordChange={setKeyword}
+            onSearch={() => void loadRecords()}
+            onReset={() => {
+              setKeyword("");
+              setFilterType("all");
+              void loadRecords();
+            }}
+            loading={loading}
+            error={error}
+            records={filteredRecords}
+            emptyStateText={emptyStateText}
+            onDelete={(id) => void handleDelete(id)}
+            onToggleFavorite={(id, isFavorite) => void handleToggleFavorite(id, isFavorite)}
+          />
+        ) : (
+          <SettingsPage settings={storageSettings} />
+        )}
+      </AppShell>
     </>
   );
 }
