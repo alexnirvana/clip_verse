@@ -1,146 +1,122 @@
 :root {
   font-family: "PingFang SC", "Microsoft YaHei", Inter, sans-serif;
-  color: #1f2937;
-  background: #f3f4f6;
+  color: #e8f2ff;
+  background: radial-gradient(circle at 20% 10%, #1f2a44, #080b16 45%, #05070f 100%);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  color: #e8f2ff;
+  background: radial-gradient(circle at 20% 10%, #1f2a44, #080b16 45%, #05070f 100%);
 }
 
 #root {
   min-height: 100vh;
 }
 
-.app {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 20px;
+.app-header {
+  background: linear-gradient(120deg, rgba(11, 20, 45, 0.92), rgba(35, 16, 68, 0.7));
+  border: 1px solid rgba(124, 224, 255, 0.24);
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 0 0 1px rgba(81, 224, 255, 0.08), 0 8px 30px rgba(56, 207, 255, 0.08);
 }
 
-.header {
-  margin-bottom: 16px;
+.app-title {
+  letter-spacing: 1px;
+  color: #f5fbff;
 }
 
-.header h1 {
-  margin: 0;
+.app-subtitle {
+  color: #92b9d8;
 }
 
-.panel {
-  background: #fff;
+.panel-glow {
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(12, 18, 38, 0.9), rgba(7, 10, 22, 0.88));
+  border: 1px solid rgba(125, 218, 255, 0.2);
+  box-shadow: inset 0 0 30px rgba(86, 193, 255, 0.07), 0 6px 25px rgba(31, 140, 255, 0.08);
+}
+
+.neon-btn {
+  border-color: rgba(114, 229, 255, 0.45) !important;
+  color: #c2f2ff !important;
+}
+
+.neon-input input {
+  background: rgba(7, 10, 22, 0.8) !important;
+  border-color: rgba(114, 229, 255, 0.3) !important;
+  color: #eaf6ff !important;
+}
+
+.path-box {
+  background: rgba(7, 10, 22, 0.82);
+  border: 1px solid rgba(138, 215, 255, 0.25);
   border-radius: 10px;
-  padding: 16px;
+  padding: 10px 12px;
+  color: #c7e8ff;
+  word-break: break-all;
+}
+
+/* 瀑布流布局：卡片高度随内容变化 */
+.masonry-wrap {
+  column-gap: 16px;
+  column-count: 1;
+}
+
+@media (min-width: 900px) {
+  .masonry-wrap {
+    column-count: 2;
+  }
+}
+
+@media (min-width: 1280px) {
+  .masonry-wrap {
+    column-count: 3;
+  }
+}
+
+.masonry-item {
+  break-inside: avoid;
   margin-bottom: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.record-card {
+  border-radius: 14px;
+  border: 1px solid rgba(108, 206, 255, 0.24);
+  background: linear-gradient(180deg, rgba(16, 24, 48, 0.95), rgba(9, 13, 29, 0.95));
+  box-shadow: 0 0 0 1px rgba(95, 205, 255, 0.05), 0 10px 28px rgba(24, 103, 255, 0.12);
+  padding: 14px;
 }
 
-textarea,
-input,
-button {
-  font: inherit;
-}
-
-textarea,
-input {
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 10px;
-}
-
-button {
-  border: none;
-  border-radius: 8px;
-  padding: 8px 12px;
-  background: #2563eb;
-  color: #fff;
-  cursor: pointer;
-}
-
-button:hover {
-  background: #1d4ed8;
-}
-
-.stats-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-
-.search-wrap {
-  display: flex;
-  gap: 8px;
-}
-
-.record-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.record-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 12px;
-}
-
-.record-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: #6b7280;
-  margin-bottom: 8px;
-  gap: 8px;
+.record-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #c7ebff;
+  background: rgba(22, 109, 157, 0.45);
 }
 
 .record-type {
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 999px;
   font-size: 12px;
-  background: #e0e7ff;
-  color: #4f46e5;
+  color: #9ff6ff;
+  background: rgba(74, 71, 182, 0.4);
 }
 
-.content {
-  margin: 0 0 10px;
+.record-text {
+  margin-bottom: 10px;
   white-space: pre-wrap;
-}
-
-.image-preview {
-  margin: 0 0 10px;
-}
-
-.image-preview img {
-  max-width: 200px;
-  max-height: 200px;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
-  object-fit: contain;
-}
-
-.image-preview p {
-  margin: 4px 0 0;
-  color: #6b7280;
-  font-size: 14px;
-}
-
-.record-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: #6b7280;
-}
-
-.error {
-  color: #dc2626;
+  word-break: break-word;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(169, 216, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+  color: #dcefff;
 }
