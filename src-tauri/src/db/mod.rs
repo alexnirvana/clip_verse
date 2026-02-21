@@ -1,10 +1,29 @@
-use std::{fs, path::PathBuf};
+use std::{
+    collections::HashSet,
+    fs,
+    path::PathBuf,
+    sync::{LazyLock, Mutex},
+};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use thiserror::Error;
 
 use crate::utils::time;
+
+// 全局黑名单：存储已删除记录的内容哈希
+static DELETED_HASHES: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+pub fn add_deleted_hash(hash: &str) {
+    let mut hashes = DELETED_HASHES.lock().unwrap();
+    hashes.insert(hash.to_string());
+}
+
+pub fn is_hash_deleted(hash: &str) -> bool {
+    let hashes = DELETED_HASHES.lock().unwrap();
+    hashes.contains(hash)
+}
 
 #[derive(Debug, Error)]
 pub enum DbError {
@@ -23,6 +42,10 @@ pub struct ClipboardRecord {
     pub preview: String,
     pub content_size: i64,
     pub content: String,
+    pub image_path: Option<String>,
+    pub thumbnail_path: Option<String>,
+    pub file_path: Option<String>,
+    pub icon_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,7 +57,18 @@ fn data_root() -> PathBuf {
     if let Ok(custom_home) = std::env::var("HOME") {
         PathBuf::from(custom_home).join(".clip_verse")
     } else {
-        PathBuf::from(".clip_verse")
+        // Windows: 使用 APPDATA 或 USERPROFILE 环境变量
+        if cfg!(windows) {
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                PathBuf::from(appdata).join("clip_verse")
+            } else if let Ok(userprofile) = std::env::var("USERPROFILE") {
+                PathBuf::from(userprofile).join(".clip_verse")
+            } else {
+                PathBuf::from(".clip_verse")
+            }
+        } else {
+            PathBuf::from(".clip_verse")
+        }
     }
 }
 
@@ -116,6 +150,18 @@ pub fn init_db() -> Result<(), DbError> {
             FOREIGN KEY (record_id) REFERENCES clipboard_records(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS file_contents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_id INTEGER NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER,
+            file_name TEXT,
+            icon_path TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (record_id) REFERENCES clipboard_records(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS image_contents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             record_id INTEGER NOT NULL,
@@ -139,6 +185,8 @@ pub fn init_db() -> Result<(), DbError> {
             ON text_contents(record_id);
         CREATE INDEX IF NOT EXISTS idx_image_contents_record_id
             ON image_contents(record_id);
+        CREATE INDEX IF NOT EXISTS idx_file_contents_record_id
+            ON file_contents(record_id);
         ",
     )?;
 
@@ -147,6 +195,13 @@ pub fn init_db() -> Result<(), DbError> {
         "clipboard_records",
         "content_hash",
         "ALTER TABLE clipboard_records ADD COLUMN content_hash TEXT",
+    )?;
+
+    ensure_column(
+        &conn,
+        "file_contents",
+        "icon_path",
+        "ALTER TABLE file_contents ADD COLUMN icon_path TEXT",
     )?;
 
     Ok(())
@@ -225,6 +280,40 @@ pub fn insert_image_record(
     Ok(record_id)
 }
 
+pub fn insert_file_record(
+    file_path: &str,
+    file_size: i64,
+    file_name: Option<&str>,
+    icon_path: Option<&str>,
+    content_hash: &str,
+) -> Result<i64, DbError> {
+    let conn = connection()?;
+    let now_ts = time::now_timestamp_millis();
+    let now_iso = time::now_iso8601();
+    let preview = format!("文件: {}", file_name.unwrap_or_else(|| {
+        std::path::Path::new(file_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("未知文件")
+    }));
+
+    conn.execute(
+        "INSERT INTO clipboard_records (
+            content_type, timestamp, created_at, updated_at, preview, content_size, is_encrypted, is_favorite, content_hash
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7)",
+        params!["file", now_ts, now_iso, now_iso, preview, file_size, content_hash],
+    )?;
+
+    let record_id = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO file_contents (record_id, file_path, file_size, file_name, icon_path, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![record_id, file_path, file_size, file_name, icon_path, now_iso, now_iso],
+    )?;
+
+    Ok(record_id)
+}
+
 pub fn list_text_records(
     limit: i64,
     keyword: Option<&str>,
@@ -253,6 +342,10 @@ pub fn list_text_records(
                 preview: row.get(4)?,
                 content_size: row.get(5)?,
                 content: row.get(6)?,
+                image_path: None,
+                thumbnail_path: None,
+                file_path: None,
+                icon_path: None,
             })
         })?;
 
@@ -279,6 +372,10 @@ pub fn list_text_records(
                 preview: row.get(4)?,
                 content_size: row.get(5)?,
                 content: row.get(6)?,
+                image_path: None,
+                thumbnail_path: None,
+                file_path: None,
+                icon_path: None,
             })
         })?;
 
@@ -290,12 +387,60 @@ pub fn list_text_records(
     Ok(records)
 }
 
+pub fn get_file_metadata(record_id: i64) -> Result<(String, i64, Option<String>), DbError> {
+    let conn = connection()?;
+    conn.query_row(
+        "SELECT file_path, file_size, file_name FROM file_contents WHERE record_id = ?1",
+        params![record_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .map_err(|e| e.into())
+}
+
 pub fn delete_record(record_id: i64) -> Result<(), DbError> {
     let conn = connection()?;
+
+    // 先获取要删除记录的 content_hash
+    let hash: Option<String> = conn
+        .query_row(
+            "SELECT content_hash FROM clipboard_records WHERE id = ?1",
+            params![record_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    // 获取图片路径（如果是图片记录）
+    let (image_path, thumbnail_path, encrypted_path): (Option<String>, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT file_path, thumbnail_path, encrypted_path FROM image_contents WHERE record_id = ?1",
+            params![record_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?
+        .unwrap_or((None, None, None));
+
+    // 删除记录（会自动级联删除 text_contents 和 image_contents）
     conn.execute(
         "DELETE FROM clipboard_records WHERE id = ?1",
         params![record_id],
     )?;
+
+    // 删除图片文件
+    if let Some(path) = image_path {
+        let _ = std::fs::remove_file(&path);
+    }
+    if let Some(path) = thumbnail_path {
+        let _ = std::fs::remove_file(&path);
+    }
+    if let Some(path) = encrypted_path {
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // 将哈希加入黑名单，防止重新记录
+    if let Some(hash) = hash {
+        add_deleted_hash(&hash);
+    }
+
     Ok(())
 }
 
@@ -306,4 +451,91 @@ pub fn stats() -> Result<DashboardStats, DbError> {
     })?;
 
     Ok(DashboardStats { total_records })
+}
+
+// 获取所有记录（包括文本和图片）
+pub fn list_all_records(
+    limit: i64,
+    keyword: Option<&str>,
+) -> Result<Vec<ClipboardRecord>, DbError> {
+    let conn = connection()?;
+    let mut records = Vec::new();
+
+    if let Some(search) = keyword {
+        let like = format!("%{}%", search);
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.content_type, r.timestamp, r.created_at, COALESCE(r.preview, ''),
+                    COALESCE(r.content_size, 0),
+                    COALESCE(t.content, '') as content,
+                    i.file_path as image_path,
+                    i.thumbnail_path,
+                    f.file_path as file_path,
+                    f.icon_path
+             FROM clipboard_records r
+             LEFT JOIN text_contents t ON t.record_id = r.id
+             LEFT JOIN image_contents i ON i.record_id = r.id
+             LEFT JOIN file_contents f ON f.record_id = r.id
+             WHERE COALESCE(t.content, r.preview, f.file_name) LIKE ?1
+             ORDER BY r.timestamp DESC
+             LIMIT ?2",
+        )?;
+
+        let rows = stmt.query_map(params![like, limit], |row| {
+            Ok(ClipboardRecord {
+                id: row.get(0)?,
+                content_type: row.get(1)?,
+                timestamp: row.get(2)?,
+                created_at: row.get(3)?,
+                preview: row.get(4)?,
+                content_size: row.get(5)?,
+                content: row.get(6)?,
+                image_path: row.get(7)?,
+                thumbnail_path: row.get(8)?,
+                file_path: row.get(9)?,
+                icon_path: row.get(10)?,
+            })
+        })?;
+
+        for row in rows {
+            records.push(row?);
+        }
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.content_type, r.timestamp, r.created_at, COALESCE(r.preview, ''),
+                    COALESCE(r.content_size, 0),
+                    COALESCE(t.content, '') as content,
+                    i.file_path as image_path,
+                    i.thumbnail_path,
+                    f.file_path as file_path,
+                    f.icon_path
+             FROM clipboard_records r
+             LEFT JOIN text_contents t ON t.record_id = r.id
+             LEFT JOIN image_contents i ON i.record_id = r.id
+             LEFT JOIN file_contents f ON f.record_id = r.id
+             ORDER BY r.timestamp DESC
+             LIMIT ?1",
+        )?;
+
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(ClipboardRecord {
+                id: row.get(0)?,
+                content_type: row.get(1)?,
+                timestamp: row.get(2)?,
+                created_at: row.get(3)?,
+                preview: row.get(4)?,
+                content_size: row.get(5)?,
+                content: row.get(6)?,
+                image_path: row.get(7)?,
+                thumbnail_path: row.get(8)?,
+                file_path: row.get(9)?,
+                icon_path: row.get(10)?,
+            })
+        })?;
+
+        for row in rows {
+            records.push(row?);
+        }
+    }
+
+    Ok(records)
 }

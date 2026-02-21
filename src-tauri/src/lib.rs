@@ -3,10 +3,10 @@ mod monitor;
 mod utils;
 
 use db::{
-    delete_record, init_db, insert_text_record, list_text_records, stats, ClipboardRecord,
-    DashboardStats,
+    delete_record, get_file_metadata, init_db, insert_text_record, list_text_records,
+    list_all_records, stats, ClipboardRecord, DashboardStats,
 };
-use monitor::start_clipboard_monitor;
+use monitor::{start_clipboard_monitor, set_event_emitter};
 
 #[tauri::command]
 fn init_app() -> Result<String, String> {
@@ -32,6 +32,15 @@ fn get_text_records(
 }
 
 #[tauri::command]
+fn get_all_records(
+    limit: Option<i64>,
+    keyword: Option<String>,
+) -> Result<Vec<ClipboardRecord>, String> {
+    let safe_limit = limit.unwrap_or(100).clamp(1, 500);
+    list_all_records(safe_limit, keyword.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn remove_record(record_id: i64) -> Result<(), String> {
     delete_record(record_id).map_err(|e| e.to_string())
 }
@@ -39,6 +48,11 @@ fn remove_record(record_id: i64) -> Result<(), String> {
 #[tauri::command]
 fn get_dashboard_stats() -> Result<DashboardStats, String> {
     stats().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_file_info(record_id: i64) -> Result<(String, i64, Option<String>), String> {
+    get_file_metadata(record_id).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -51,12 +65,19 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // 设置事件发送器
+            set_event_emitter(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             init_app,
             add_text_record,
             get_text_records,
+            get_all_records,
             remove_record,
-            get_dashboard_stats
+            get_dashboard_stats,
+            get_file_info
         ])
         .run(tauri::generate_context!())
         .expect("运行应用时发生错误");

@@ -97,13 +97,41 @@ button:hover {
 .record-head {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   color: #6b7280;
   margin-bottom: 8px;
+  gap: 8px;
+}
+
+.record-type {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: #e0e7ff;
+  color: #4f46e5;
 }
 
 .content {
   margin: 0 0 10px;
   white-space: pre-wrap;
+}
+
+.image-preview {
+  margin: 0 0 10px;
+}
+
+.image-preview img {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  object-fit: contain;
+}
+
+.image-preview p {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font-size: 14px;
 }
 
 .record-meta {
