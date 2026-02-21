@@ -1,4 +1,4 @@
-import { Box, Button, Heading, HStack, Text, VStack } from "@chakra-ui/react";
+import { Box, Button, Heading, HStack, Input, Text, VStack } from "@chakra-ui/react";
 import type {
   AutoStartSettings,
   RecordExpirationSettings,
@@ -13,6 +13,7 @@ type Props = {
   savingRecordExpiration: boolean;
   onToggleAutoStart: (nextEnabled: boolean) => void;
   onToggleRecordExpiration: (nextEnabled: boolean) => void;
+  onUpdateExpirationDays: (days: number) => void;
 };
 
 export const SettingsPage = ({
@@ -23,6 +24,7 @@ export const SettingsPage = ({
   savingRecordExpiration,
   onToggleAutoStart,
   onToggleRecordExpiration,
+  onUpdateExpirationDays,
 }: Props) => {
   const autoStartEnabled = autoStartSettings?.auto_start_enabled ?? false;
   const expirationEnabled = recordExpirationSettings?.expiration_enabled ?? false;
@@ -72,20 +74,50 @@ export const SettingsPage = ({
           <Text fontWeight="bold" mb={2} color="gray.700">
             记录过期清理
           </Text>
-          <HStack justify="space-between" gap={3}>
-            <Text color="gray.600">
-              当前状态：
-              {expirationEnabled ? `已开启（保留最近 ${expirationDays} 天）` : "已关闭（默认）"}
-            </Text>
-            <Button
-              size="sm"
-              colorPalette={expirationEnabled ? "orange" : "teal"}
-              loading={savingRecordExpiration}
-              onClick={() => onToggleRecordExpiration(!expirationEnabled)}
-            >
-              {expirationEnabled ? "关闭" : "开启"}
-            </Button>
-          </HStack>
+          <VStack gap={2} align="stretch">
+            <HStack justify="space-between" gap={3}>
+              <Text color="gray.600">
+                当前状态：
+                {expirationEnabled ? `已开启（保留最近 ${expirationDays} 天）` : "已关闭（默认）"}
+              </Text>
+              <Button
+                size="sm"
+                colorPalette={expirationEnabled ? "orange" : "teal"}
+                loading={savingRecordExpiration}
+                onClick={() => onToggleRecordExpiration(!expirationEnabled)}
+              >
+                {expirationEnabled ? "关闭" : "开启"}
+              </Button>
+            </HStack>
+            {expirationEnabled && (
+              <HStack gap={2} align="center">
+                <Text color="gray.600" fontSize="sm">保留天数：</Text>
+                <Input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  defaultValue={expirationDays.toString()}
+                  size="sm"
+                  width="100px"
+                  onBlur={(e) => {
+                    const days = parseInt(e.target.value, 10);
+                    if (!isNaN(days) && days > 0 && days <= 3650) {
+                      onUpdateExpirationDays(days);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const days = parseInt((e.target as HTMLInputElement).value, 10);
+                      if (!isNaN(days) && days > 0 && days <= 3650) {
+                        onUpdateExpirationDays(days);
+                      }
+                    }
+                  }}
+                />
+                <Text color="gray.500" fontSize="sm">天（1-3650）</Text>
+              </HStack>
+            )}
+          </VStack>
         </Box>
       </VStack>
     </Box>

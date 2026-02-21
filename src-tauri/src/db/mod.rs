@@ -81,6 +81,12 @@ pub struct LocalSettingsConfig {
     pub auto_start_enabled: bool,
     #[serde(default)]
     pub record_expiration_enabled: bool,
+    #[serde(default = "default_expiration_days")]
+    pub expiration_days: i64,
+}
+
+fn default_expiration_days() -> i64 {
+    200
 }
 
 pub fn settings_config_path() -> PathBuf {
@@ -553,9 +559,20 @@ pub fn get_record_expiration_enabled() -> Result<bool, DbError> {
     Ok(config.record_expiration_enabled)
 }
 
+pub fn get_expiration_days() -> Result<i64, DbError> {
+    let config = read_local_settings_config()?;
+    Ok(config.expiration_days)
+}
+
 pub fn set_record_expiration_enabled(enabled: bool) -> Result<(), DbError> {
     let mut config = read_local_settings_config()?;
     config.record_expiration_enabled = enabled;
+    write_local_settings_config(&config)
+}
+
+pub fn set_expiration_days(days: i64) -> Result<(), DbError> {
+    let mut config = read_local_settings_config()?;
+    config.expiration_days = days;
     write_local_settings_config(&config)
 }
 
@@ -565,7 +582,8 @@ pub fn cleanup_expired_records_on_startup() -> Result<usize, DbError> {
     }
 
     let now_ms = time::now_timestamp_millis();
-    let cutoff_ms = now_ms - RECORD_EXPIRATION_DAYS * 24 * 60 * 60 * 1000;
+    let days = get_expiration_days().unwrap_or(RECORD_EXPIRATION_DAYS);
+    let cutoff_ms = now_ms - days * 24 * 60 * 60 * 1000;
 
     let expired_ids: Vec<i64> = {
         let conn = connection()?;

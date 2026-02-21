@@ -135,13 +135,16 @@ function App() {
   async function handleToggleRecordExpiration(nextEnabled: boolean) {
     setSavingRecordExpiration(true);
     try {
-      await invoke("set_record_expiration_settings", { expirationEnabled: nextEnabled });
+      await invoke("set_record_expiration_settings", {
+        expirationEnabled: nextEnabled,
+        expirationDays: nextEnabled ? (recordExpirationSettings?.expiration_days ?? 200) : 200,
+      });
       setRecordExpirationSettings({
         expiration_enabled: nextEnabled,
-        expiration_days: 200,
+        expiration_days: nextEnabled ? (recordExpirationSettings?.expiration_days ?? 200) : 200,
       });
       toaster.create({
-        title: nextEnabled ? "已开启记录过期清理（200 天）" : "已关闭记录过期清理",
+        title: nextEnabled ? "已开启记录过期清理" : "已关闭记录过期清理",
         type: "success",
         duration: 2000,
       });
@@ -155,6 +158,26 @@ function App() {
       });
     } finally {
       setSavingRecordExpiration(false);
+    }
+  }
+
+  async function handleUpdateExpirationDays(days: number) {
+    try {
+      await invoke("set_record_expiration_settings", {
+        expirationEnabled: true,
+        expirationDays: days,
+      });
+      setRecordExpirationSettings((prev) => ({
+        expiration_enabled: prev?.expiration_enabled ?? false,
+        expiration_days: days,
+      }));
+    } catch (e) {
+      toaster.create({
+        title: "更新保留天数失败",
+        description: String(e),
+        type: "error",
+        duration: 3000,
+      });
     }
   }
 
@@ -266,6 +289,7 @@ function App() {
             savingRecordExpiration={savingRecordExpiration}
             onToggleAutoStart={(nextEnabled) => void handleToggleAutoStart(nextEnabled)}
             onToggleRecordExpiration={(nextEnabled) => void handleToggleRecordExpiration(nextEnabled)}
+            onUpdateExpirationDays={(days) => void handleUpdateExpirationDays(days)}
           />
         )}
       </AppShell>

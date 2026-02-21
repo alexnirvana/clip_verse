@@ -4,10 +4,10 @@ mod utils;
 
 use db::{
     cleanup_expired_records_on_startup, db_path, delete_record, ensure_settings_config,
-    get_auto_start_enabled, get_file_metadata, get_record_expiration_enabled, images_raw_dir,
+    get_auto_start_enabled, get_expiration_days, get_file_metadata, get_record_expiration_enabled, images_raw_dir,
     init_db, insert_text_record, list_all_records, list_text_records, set_auto_start_enabled,
-    set_favorite, set_record_expiration_enabled, settings_config_path, stats, ClipboardRecord,
-    DashboardStats, RECORD_EXPIRATION_DAYS,
+    set_expiration_days, set_favorite, set_record_expiration_enabled, settings_config_path, stats, ClipboardRecord,
+    DashboardStats,
 };
 use monitor::{set_event_emitter, start_clipboard_monitor};
 use tauri_plugin_autostart::ManagerExt;
@@ -115,15 +115,19 @@ struct RecordExpirationSettings {
 #[tauri::command]
 fn get_record_expiration_settings() -> Result<RecordExpirationSettings, String> {
     let enabled = get_record_expiration_enabled().map_err(|e| e.to_string())?;
+    let days = get_expiration_days().map_err(|e| e.to_string())?;
     Ok(RecordExpirationSettings {
         expiration_enabled: enabled,
-        expiration_days: RECORD_EXPIRATION_DAYS,
+        expiration_days: days,
     })
 }
 
 #[tauri::command]
-fn set_record_expiration_settings(expiration_enabled: bool) -> Result<(), String> {
+fn set_record_expiration_settings(expiration_enabled: bool, expiration_days: Option<i64>) -> Result<(), String> {
     set_record_expiration_enabled(expiration_enabled).map_err(|e| e.to_string())?;
+    if let Some(days) = expiration_days {
+        set_expiration_days(days).map_err(|e| e.to_string())?;
+    }
     if expiration_enabled {
         cleanup_expired_records_on_startup().map_err(|e| e.to_string())?;
     }
