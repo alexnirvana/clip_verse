@@ -4,7 +4,7 @@ mod utils;
 
 use db::{
     delete_record, get_file_metadata, init_db, insert_text_record, list_text_records,
-    list_all_records, stats, ClipboardRecord, DashboardStats,
+    list_all_records, stats, ClipboardRecord, DashboardStats, db_path, images_raw_dir,
 };
 use monitor::{start_clipboard_monitor, set_event_emitter};
 
@@ -55,6 +55,21 @@ fn get_file_info(record_id: i64) -> Result<(String, i64, Option<String>), String
     get_file_metadata(record_id).map_err(|e| e.to_string())
 }
 
+
+#[derive(serde::Serialize)]
+struct StorageSettings {
+    database_path: String,
+    image_save_path: String,
+}
+
+#[tauri::command]
+fn get_storage_settings() -> Result<StorageSettings, String> {
+    Ok(StorageSettings {
+        database_path: db_path().to_string_lossy().to_string(),
+        image_save_path: images_raw_dir().to_string_lossy().to_string(),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Err(err) = init_db() {
@@ -77,7 +92,8 @@ pub fn run() {
             get_all_records,
             remove_record,
             get_dashboard_stats,
-            get_file_info
+            get_file_info,
+            get_storage_settings
         ])
         .run(tauri::generate_context!())
         .expect("运行应用时发生错误");
