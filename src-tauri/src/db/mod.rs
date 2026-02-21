@@ -188,6 +188,12 @@ pub fn init_db() -> Result<(), DbError> {
             ON image_contents(record_id);
         CREATE INDEX IF NOT EXISTS idx_file_contents_record_id
             ON file_contents(record_id);
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         ",
     )?;
 
@@ -468,6 +474,29 @@ pub fn set_favorite(record_id: i64, is_favorite: bool) -> Result<(), DbError> {
     conn.execute(
         "UPDATE clipboard_records SET is_favorite = ?1, updated_at = ?2 WHERE id = ?3",
         params![if is_favorite { 1 } else { 0 }, time::now_iso8601(), record_id],
+    )?;
+    Ok(())
+}
+
+pub fn get_auto_start_enabled() -> Result<bool, DbError> {
+    let conn = connection()?;
+    let value = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'auto_start_enabled'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+
+    Ok(matches!(value.as_deref(), Some("1") | Some("true") | Some("TRUE")))
+}
+
+pub fn set_auto_start_enabled(enabled: bool) -> Result<(), DbError> {
+    let conn = connection()?;
+    conn.execute(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES ('auto_start_enabled', ?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        params![if enabled { "1" } else { "0" }, time::now_iso8601()],
     )?;
     Ok(())
 }

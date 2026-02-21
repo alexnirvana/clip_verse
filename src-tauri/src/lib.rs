@@ -3,10 +3,12 @@ mod monitor;
 mod utils;
 
 use db::{
-    delete_record, get_file_metadata, init_db, insert_text_record, list_text_records,
-    list_all_records, set_favorite, stats, ClipboardRecord, DashboardStats, db_path, images_raw_dir,
+    db_path, delete_record, get_auto_start_enabled, get_file_metadata, images_raw_dir, init_db,
+    insert_text_record, list_all_records, list_text_records, set_auto_start_enabled, set_favorite,
+    stats, ClipboardRecord, DashboardStats,
 };
-use monitor::{start_clipboard_monitor, set_event_emitter};
+use monitor::{set_event_emitter, start_clipboard_monitor};
+use tauri_plugin_autostart::ManagerExt;
 
 #[tauri::command]
 fn init_app() -> Result<String, String> {
@@ -75,6 +77,30 @@ fn get_storage_settings() -> Result<StorageSettings, String> {
     })
 }
 
+#[derive(serde::Serialize)]
+struct AutoStartSettings {
+    auto_start_enabled: bool,
+}
+
+#[tauri::command]
+fn get_auto_start_settings() -> Result<AutoStartSettings, String> {
+    let enabled = get_auto_start_enabled().map_err(|e| e.to_string())?;
+    Ok(AutoStartSettings {
+        auto_start_enabled: enabled,
+    })
+}
+
+#[tauri::command]
+fn set_auto_start_settings(app: tauri::AppHandle, auto_start_enabled: bool) -> Result<(), String> {
+    if auto_start_enabled {
+        app.autolaunch().enable().map_err(|e| e.to_string())?;
+    } else {
+        app.autolaunch().disable().map_err(|e| e.to_string())?;
+    }
+
+    set_auto_start_enabled(auto_start_enabled).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Err(err) = init_db() {
@@ -85,6 +111,10 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             // 设置事件发送器
             set_event_emitter(app.handle().clone());
@@ -99,6 +129,8 @@ pub fn run() {
             get_dashboard_stats,
             get_file_info,
             get_storage_settings,
+            get_auto_start_settings,
+            set_auto_start_settings,
             toggle_favorite
         ])
         .run(tauri::generate_context!())
