@@ -419,7 +419,17 @@ pub fn delete_record(record_id: i64) -> Result<(), DbError> {
         .optional()?
         .unwrap_or((None, None, None));
 
-    // 删除记录（会自动级联删除 text_contents 和 image_contents）
+    // 获取文件图标路径（如果是文件记录）
+    let icon_path: Option<String> = conn
+        .query_row(
+            "SELECT icon_path FROM file_contents WHERE record_id = ?1",
+            params![record_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+
+    // 删除记录（会自动级联删除 text_contents、image_contents 和 file_contents）
     conn.execute(
         "DELETE FROM clipboard_records WHERE id = ?1",
         params![record_id],
@@ -433,6 +443,11 @@ pub fn delete_record(record_id: i64) -> Result<(), DbError> {
         let _ = std::fs::remove_file(&path);
     }
     if let Some(path) = encrypted_path {
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // 删除文件图标（缩略图）
+    if let Some(path) = icon_path {
         let _ = std::fs::remove_file(&path);
     }
 
