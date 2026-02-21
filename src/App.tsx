@@ -10,6 +10,7 @@ import type {
   ClipboardRecord,
   DashboardStats,
   PageType,
+  RecordExpirationSettings,
   RecordFilterType,
   StorageSettings,
 } from "@/types/clipboard";
@@ -25,6 +26,8 @@ function App() {
   const [storageSettings, setStorageSettings] = useState<StorageSettings | null>(null);
   const [autoStartSettings, setAutoStartSettings] = useState<AutoStartSettings | null>(null);
   const [savingAutoStart, setSavingAutoStart] = useState(false);
+  const [recordExpirationSettings, setRecordExpirationSettings] = useState<RecordExpirationSettings | null>(null);
+  const [savingRecordExpiration, setSavingRecordExpiration] = useState(false);
 
   const filteredRecords = useMemo(() => {
     const sorted = [...records].sort((a, b) => b.timestamp - a.timestamp);
@@ -37,7 +40,13 @@ function App() {
   async function init() {
     try {
       await invoke("init_app");
-      await Promise.all([loadRecords(), loadStats(), loadStorageSettings(), loadAutoStartSettings()]);
+      await Promise.all([
+        loadRecords(),
+        loadStats(),
+        loadStorageSettings(),
+        loadAutoStartSettings(),
+        loadRecordExpirationSettings(),
+      ]);
     } catch (e) {
       setError(String(e));
     }
@@ -92,6 +101,15 @@ function App() {
     }
   }
 
+  async function loadRecordExpirationSettings() {
+    try {
+      const result = await invoke<RecordExpirationSettings>("get_record_expiration_settings");
+      setRecordExpirationSettings(result);
+    } catch (e) {
+      setError(`加载记录过期设置失败：${String(e)}`);
+    }
+  }
+
   async function handleToggleAutoStart(nextEnabled: boolean) {
     setSavingAutoStart(true);
     try {
@@ -111,6 +129,32 @@ function App() {
       });
     } finally {
       setSavingAutoStart(false);
+    }
+  }
+
+  async function handleToggleRecordExpiration(nextEnabled: boolean) {
+    setSavingRecordExpiration(true);
+    try {
+      await invoke("set_record_expiration_settings", { expirationEnabled: nextEnabled });
+      setRecordExpirationSettings({
+        expiration_enabled: nextEnabled,
+        expiration_days: 200,
+      });
+      toaster.create({
+        title: nextEnabled ? "已开启记录过期清理（200 天）" : "已关闭记录过期清理",
+        type: "success",
+        duration: 2000,
+      });
+      await Promise.all([loadRecords(), loadStats()]);
+    } catch (e) {
+      toaster.create({
+        title: "更新记录过期设置失败",
+        description: String(e),
+        type: "error",
+        duration: 3000,
+      });
+    } finally {
+      setSavingRecordExpiration(false);
     }
   }
 
@@ -189,6 +233,7 @@ function App() {
           if (nextPage === "settings") {
             void loadStorageSettings();
             void loadAutoStartSettings();
+            void loadRecordExpirationSettings();
           }
         }}
       >
@@ -216,8 +261,11 @@ function App() {
           <SettingsPage
             settings={storageSettings}
             autoStartSettings={autoStartSettings}
+            recordExpirationSettings={recordExpirationSettings}
             savingAutoStart={savingAutoStart}
+            savingRecordExpiration={savingRecordExpiration}
             onToggleAutoStart={(nextEnabled) => void handleToggleAutoStart(nextEnabled)}
+            onToggleRecordExpiration={(nextEnabled) => void handleToggleRecordExpiration(nextEnabled)}
           />
         )}
       </AppShell>

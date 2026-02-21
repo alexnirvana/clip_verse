@@ -54,7 +54,9 @@ pub struct DashboardStats {
     pub total_records: i64,
 }
 
-fn data_root() -> PathBuf {
+pub const RECORD_EXPIRATION_DAYS: i64 = 200;
+
+pub fn data_root() -> PathBuf {
     if let Ok(custom_home) = std::env::var("HOME") {
         PathBuf::from(custom_home).join(".clip_verse")
     } else {
@@ -73,6 +75,56 @@ fn data_root() -> PathBuf {
     }
 }
 
+#[derive(Debug, Serialize, serde::Deserialize, Default)]
+pub struct LocalSettingsConfig {
+    #[serde(default)]
+    pub auto_start_enabled: bool,
+    #[serde(default)]
+    pub record_expiration_enabled: bool,
+}
+
+pub fn settings_config_path() -> PathBuf {
+    data_root().join("config").join("settings.json")
+}
+
+pub fn ensure_settings_config() -> Result<(), DbError> {
+    let config_path = settings_config_path();
+    if config_path.exists() {
+        return Ok(());
+    }
+
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let default_config = LocalSettingsConfig::default();
+    let json = serde_json::to_string_pretty(&default_config).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::Other, format!("序列化配置失败: {e}"))
+    })?;
+    fs::write(config_path, json)?;
+    Ok(())
+}
+
+pub fn read_local_settings_config() -> Result<LocalSettingsConfig, DbError> {
+    ensure_settings_config()?;
+    let raw = fs::read_to_string(settings_config_path())?;
+    let config = serde_json::from_str::<LocalSettingsConfig>(&raw).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::Other, format!("解析配置失败: {e}"))
+    })?;
+    Ok(config)
+}
+
+pub fn write_local_settings_config(config: &LocalSettingsConfig) -> Result<(), DbError> {
+    let config_path = settings_config_path();
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(config).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::Other, format!("序列化配置失败: {e}"))
+    })?;
+    fs::write(config_path, json)?;
+    Ok(())
+}
 pub fn images_raw_dir() -> PathBuf {
     data_root().join("images").join("raw")
 }
@@ -95,6 +147,7 @@ fn ensure_dirs() -> Result<(), DbError> {
     fs::create_dir_all(images_thumbnail_dir())?;
     fs::create_dir_all(encrypted_images_dir())?;
     fs::create_dir_all(data_root().join("logs"))?;
+    fs::create_dir_all(data_root().join("config"))?;
     Ok(())
 }
 
@@ -297,12 +350,15 @@ pub fn insert_file_record(
     let conn = connection()?;
     let now_ts = time::now_timestamp_millis();
     let now_iso = time::now_iso8601();
-    let preview = format!("文件: {}", file_name.unwrap_or_else(|| {
-        std::path::Path::new(file_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("未知文件")
-    }));
+    let preview = format!(
+        "文件: {}",
+        file_name.unwrap_or_else(|| {
+            std::path::Path::new(file_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("未知文件")
+        })
+    );
 
     conn.execute(
         "INSERT INTO clipboard_records (
@@ -468,37 +524,63 @@ pub fn delete_record(record_id: i64) -> Result<(), DbError> {
     Ok(())
 }
 
-
 pub fn set_favorite(record_id: i64, is_favorite: bool) -> Result<(), DbError> {
     let conn = connection()?;
     conn.execute(
         "UPDATE clipboard_records SET is_favorite = ?1, updated_at = ?2 WHERE id = ?3",
-        params![if is_favorite { 1 } else { 0 }, time::now_iso8601(), record_id],
+        params![
+            if is_favorite { 1 } else { 0 },
+            time::now_iso8601(),
+            record_id
+        ],
     )?;
     Ok(())
 }
 
 pub fn get_auto_start_enabled() -> Result<bool, DbError> {
-    let conn = connection()?;
-    let value = conn
-        .query_row(
-            "SELECT value FROM app_settings WHERE key = 'auto_start_enabled'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-
-    Ok(matches!(value.as_deref(), Some("1") | Some("true") | Some("TRUE")))
+    let config = read_local_settings_config()?;
+    Ok(config.auto_start_enabled)
 }
 
 pub fn set_auto_start_enabled(enabled: bool) -> Result<(), DbError> {
-    let conn = connection()?;
-    conn.execute(
-        "INSERT INTO app_settings (key, value, updated_at) VALUES ('auto_start_enabled', ?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-        params![if enabled { "1" } else { "0" }, time::now_iso8601()],
-    )?;
-    Ok(())
+    let mut config = read_local_settings_config()?;
+    config.auto_start_enabled = enabled;
+    write_local_settings_config(&config)
+}
+
+pub fn get_record_expiration_enabled() -> Result<bool, DbError> {
+    let config = read_local_settings_config()?;
+    Ok(config.record_expiration_enabled)
+}
+
+pub fn set_record_expiration_enabled(enabled: bool) -> Result<(), DbError> {
+    let mut config = read_local_settings_config()?;
+    config.record_expiration_enabled = enabled;
+    write_local_settings_config(&config)
+}
+
+pub fn cleanup_expired_records_on_startup() -> Result<usize, DbError> {
+    if !get_record_expiration_enabled()? {
+        return Ok(0);
+    }
+
+    let now_ms = time::now_timestamp_millis();
+    let cutoff_ms = now_ms - RECORD_EXPIRATION_DAYS * 24 * 60 * 60 * 1000;
+
+    let expired_ids: Vec<i64> = {
+        let conn = connection()?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM clipboard_records WHERE timestamp < ?1 ORDER BY timestamp ASC",
+        )?;
+        let rows = stmt.query_map(params![cutoff_ms], |row| row.get::<_, i64>(0))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    for record_id in &expired_ids {
+        delete_record(*record_id)?;
+    }
+
+    Ok(expired_ids.len())
 }
 
 pub fn stats() -> Result<DashboardStats, DbError> {
