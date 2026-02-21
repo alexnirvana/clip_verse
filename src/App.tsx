@@ -28,7 +28,11 @@ function App() {
         </a>
       </div>
       <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
+<div className="flex items-center justify-center p-4">
+  <button className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+    点击我
+  </button>
+</div>
       <form
         className="row"
         onSubmit={(e) => {
