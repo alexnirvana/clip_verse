@@ -1,20 +1,14 @@
-use std::{
-    fs, path::Path, sync::Mutex, thread, time::Duration,
-};
+use std::{fs, path::Path, sync::Mutex, thread, time::Duration};
 
 use arboard::Clipboard;
 use image::{imageops::FilterType, ImageBuffer, Rgba};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
-
-
-
 use crate::{
     db::{
-        encrypted_images_dir, has_content_hash, images_raw_dir,
-        images_thumbnail_dir, insert_file_record, insert_image_record, insert_text_record_with_hash,
-        is_hash_deleted,
+        encrypted_images_dir, has_content_hash, images_raw_dir, images_thumbnail_dir,
+        insert_file_record, insert_image_record, insert_text_record_with_hash, is_hash_deleted,
     },
     utils::time,
 };
@@ -53,25 +47,25 @@ fn xor_encrypt(bytes: &[u8], key: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(target_os = "windows")]
-fn extract_file_icon(file_path: &str) -> Option<Vec<u8>> {
-    use winapi::um::shellapi::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_SMALLICON};
+fn extract_file_icon(file_path: &str) -> Option<(Vec<u8>, u32, u32)> {
+    use std::ptr::null_mut;
     use winapi::shared::minwindef::DWORD;
+    use winapi::um::shellapi::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
     use winapi::um::wingdi::*;
     use winapi::um::winuser::*;
-    use std::ptr::null_mut;
 
     let path: Vec<u16> = file_path.encode_utf16().chain(std::iter::once(0)).collect();
 
     unsafe {
         let mut shfi: SHFILEINFOW = std::mem::zeroed();
 
-        // 移除 SHGFI_USEFILEATTRIBUTES，使用实际文件图标
+        // 使用真实文件图标，优先拿到大图标，避免放大后发虚
         let result = SHGetFileInfoW(
             path.as_ptr(),
             0,
             &mut shfi as *mut _ as *mut _,
             std::mem::size_of::<SHFILEINFOW>() as DWORD,
-            SHGFI_ICON | SHGFI_SMALLICON,
+            SHGFI_ICON | SHGFI_LARGEICON,
         );
 
         if result == 0 || shfi.hIcon.is_null() {
@@ -93,9 +87,40 @@ fn extract_file_icon(file_path: &str) -> Option<Vec<u8>> {
             return None;
         }
 
-        // 创建位图 - 使用 32x32 尺寸以获得更清晰的图标
-        let bmp = CreateCompatibleBitmap(hdc, 32, 32);
+        // 根据图标真实尺寸创建位图，尽量还原桌面观感
+        let mut icon_info: ICONINFO = std::mem::zeroed();
+        if GetIconInfo(shfi.hIcon, &mut icon_info) == 0 {
+            DeleteDC(mem_dc);
+            ReleaseDC(null_mut(), hdc);
+            DestroyIcon(shfi.hIcon);
+            return None;
+        }
+
+        let mut bmp_obj: BITMAP = std::mem::zeroed();
+        let got_obj = GetObjectW(
+            icon_info.hbmColor as *mut _,
+            std::mem::size_of::<BITMAP>() as i32,
+            &mut bmp_obj as *mut _ as *mut _,
+        );
+
+        let mut width = if got_obj > 0 { bmp_obj.bmWidth } else { 48 };
+        let mut height = if got_obj > 0 { bmp_obj.bmHeight } else { 48 };
+
+        if width <= 0 {
+            width = 48;
+        }
+        if height <= 0 {
+            height = 48;
+        }
+
+        let bmp = CreateCompatibleBitmap(hdc, width, height);
         if bmp.is_null() {
+            if !icon_info.hbmColor.is_null() {
+                DeleteObject(icon_info.hbmColor as *mut _);
+            }
+            if !icon_info.hbmMask.is_null() {
+                DeleteObject(icon_info.hbmMask as *mut _);
+            }
             DeleteDC(mem_dc);
             ReleaseDC(null_mut(), hdc);
             DestroyIcon(shfi.hIcon);
@@ -104,25 +129,25 @@ fn extract_file_icon(file_path: &str) -> Option<Vec<u8>> {
 
         let old_bmp = SelectObject(mem_dc, bmp as *mut _);
 
-        // 使用 0x0003 (DI_NORMAL) 标志绘制图标到 32x32
+        // 使用 DI_NORMAL 绘制图标，保留 alpha 通道
         DrawIconEx(
             mem_dc,
             0,
             0,
             shfi.hIcon,
-            32,
-            32,
+            width,
+            height,
             0,
             null_mut(),
             0x0003,
         );
 
-        // 获取位图数据 - 32x32
+        // 获取位图数据
         let mut bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as DWORD,
-                biWidth: 32,
-                biHeight: -32,
+                biWidth: width,
+                biHeight: -height,
                 biPlanes: 1,
                 biBitCount: 32,
                 biCompression: BI_RGB,
@@ -140,12 +165,12 @@ fn extract_file_icon(file_path: &str) -> Option<Vec<u8>> {
             }],
         };
 
-        let mut buffer = vec![0u8; 32 * 32 * 4];
+        let mut buffer = vec![0u8; (width * height * 4) as usize];
         GetDIBits(
             hdc,
             bmp,
             0,
-            32,
+            height as u32,
             buffer.as_mut_ptr() as *mut _,
             &mut bmi,
             DIB_RGB_COLORS,
@@ -154,12 +179,18 @@ fn extract_file_icon(file_path: &str) -> Option<Vec<u8>> {
         // 清理资源
         SelectObject(mem_dc, old_bmp);
         DeleteObject(bmp as *mut _);
+        if !icon_info.hbmColor.is_null() {
+            DeleteObject(icon_info.hbmColor as *mut _);
+        }
+        if !icon_info.hbmMask.is_null() {
+            DeleteObject(icon_info.hbmMask as *mut _);
+        }
         DeleteDC(mem_dc);
         ReleaseDC(null_mut(), hdc);
         DestroyIcon(shfi.hIcon);
 
-        // 转换 BGRA 到 RGBA - 32x32
-        let mut rgba_buffer = Vec::with_capacity(32 * 32 * 4);
+        // 转换 BGRA 到 RGBA
+        let mut rgba_buffer = Vec::with_capacity((width * height * 4) as usize);
         for chunk in buffer.chunks_exact(4) {
             rgba_buffer.push(chunk[2]); // R
             rgba_buffer.push(chunk[1]); // G
@@ -167,21 +198,27 @@ fn extract_file_icon(file_path: &str) -> Option<Vec<u8>> {
             rgba_buffer.push(chunk[3]); // A
         }
 
-        println!("成功提取文件图标: {}, 数据大小: {} 字节", file_path, rgba_buffer.len());
-        Some(rgba_buffer)
+        println!(
+            "成功提取文件图标: {}, 尺寸: {}x{}, 数据大小: {} 字节",
+            file_path,
+            width,
+            height,
+            rgba_buffer.len()
+        );
+        Some((rgba_buffer, width as u32, height as u32))
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn extract_file_icon(_file_path: &str) -> Option<Vec<u8>> {
+fn extract_file_icon(_file_path: &str) -> Option<(Vec<u8>, u32, u32)> {
     // Linux/macOS 暂不支持
     None
 }
 
 #[cfg(target_os = "windows")]
 fn get_clipboard_files() -> Option<Vec<String>> {
+    use clipboard_win::{formats, is_format_avail, raw, Clipboard};
     use std::os::windows::ffi::OsStringExt;
-    use clipboard_win::{Clipboard, formats, is_format_avail, raw};
     use winapi::um::shellapi::DragQueryFileW;
     use winapi::um::shellapi::HDROP;
 
@@ -306,10 +343,11 @@ pub fn start_clipboard_monitor() {
 
                                 // 提取文件图标
                                 let icon_path: Option<String> = match extract_file_icon(file_path) {
-                                    Some(icon_data) => {
+                                    Some((icon_data, icon_width, icon_height)) => {
                                         let now = time::now_timestamp_millis();
                                         let hash_short = &sha256_hex(&icon_data)[..16];
-                                        let icon_file_name = format!("icon_{}_{}.png", now, hash_short);
+                                        let icon_file_name =
+                                            format!("icon_{}_{}.png", now, hash_short);
 
                                         // 按日期创建图标目录
                                         let date_str = time::now_date_path();
@@ -320,17 +358,21 @@ pub fn start_clipboard_monitor() {
                                         } else {
                                             let icon_path = icon_date_dir.join(&icon_file_name);
 
-                                            // 保存图标 - 使用 32x32 尺寸
-                                            match ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(32, 32, icon_data) {
-                                                Some(buffer) => {
-                                                    match buffer.save(&icon_path) {
-                                                        Ok(_) => Some(icon_path.to_string_lossy().to_string()),
-                                                        Err(err) => {
-                                                            eprintln!("保存图标失败: {err}");
-                                                            None
-                                                        }
+                                            // 保存图标，使用提取到的原始尺寸
+                                            match ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(
+                                                icon_width,
+                                                icon_height,
+                                                icon_data,
+                                            ) {
+                                                Some(buffer) => match buffer.save(&icon_path) {
+                                                    Ok(_) => Some(
+                                                        icon_path.to_string_lossy().to_string(),
+                                                    ),
+                                                    Err(err) => {
+                                                        eprintln!("保存图标失败: {err}");
+                                                        None
                                                     }
-                                                }
+                                                },
                                                 None => None,
                                             }
                                         }
@@ -462,11 +504,15 @@ pub fn start_clipboard_monitor() {
                                             let encrypted_name = format!("{file_name}.enc");
 
                                             // 按日期创建加密目录
-                                            let encrypted_date_dir = encrypted_images_dir().join(&date_str);
-                                            if let Err(err) = fs::create_dir_all(&encrypted_date_dir) {
+                                            let encrypted_date_dir =
+                                                encrypted_images_dir().join(&date_str);
+                                            if let Err(err) =
+                                                fs::create_dir_all(&encrypted_date_dir)
+                                            {
                                                 eprintln!("创建加密目录失败: {err}");
                                             }
-                                            let encrypted_path = encrypted_date_dir.join(encrypted_name);
+                                            let encrypted_path =
+                                                encrypted_date_dir.join(encrypted_name);
 
                                             if let Err(err) = fs::write(&encrypted_path, encrypted)
                                             {
